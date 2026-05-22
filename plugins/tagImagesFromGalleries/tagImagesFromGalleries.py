@@ -71,13 +71,14 @@ def processGallery(gallery: dict):
 
     gallery_tag_ids = {t["id"] for t in gallery["tags"]}
     gallery_performer_ids = {p["id"] for p in gallery["performers"]}
+    gallery_studio_id = gallery["studio"]["id"] if gallery.get("studio") else None
 
-    if not gallery_tag_ids and not gallery_performer_ids:
+    if not gallery_tag_ids and not gallery_performer_ids and not gallery_studio_id:
         return
 
     images = stash.find_gallery_images(
         gallery["id"],
-        fragment="id tags { id } performers { id }"
+        fragment="id tags { id } performers { id } studio { id }"
     )
 
     if not images:
@@ -86,33 +87,38 @@ def processGallery(gallery: dict):
     batch_ids = []
     batch_tags = set()
     batch_performers = set()
+    batch_studio_id = None
 
     for image in images:
 
         image_tag_ids = {t["id"] for t in image["tags"]}
         image_performer_ids = {p["id"] for p in image["performers"]}
+        image_studio_id = image["studio"]["id"] if image.get("studio") else None
 
         new_tag_ids = gallery_tag_ids - image_tag_ids
         new_performer_ids = gallery_performer_ids - image_performer_ids
+        new_studio_id = gallery_studio_id if gallery_studio_id and gallery_studio_id != image_studio_id else None
 
-        if not new_tag_ids and not new_performer_ids:
+        if not new_tag_ids and not new_performer_ids and not new_studio_id:
             continue
 
         batch_ids.append(image["id"])
         batch_tags.update(new_tag_ids)
         batch_performers.update(new_performer_ids)
+        batch_studio_id = new_studio_id or batch_studio_id
 
         if len(batch_ids) >= IMAGE_UPDATE_BATCH:
-            sendImageBatch(batch_ids, batch_tags, batch_performers)
+            sendImageBatch(batch_ids, batch_tags, batch_performers, batch_studio_id)
             batch_ids = []
             batch_tags = set()
             batch_performers = set()
+            batch_studio_id = None
 
     if batch_ids:
-        sendImageBatch(batch_ids, batch_tags, batch_performers)
+        sendImageBatch(batch_ids, batch_tags, batch_performers, batch_studio_id)
 
 
-def sendImageBatch(image_ids, tag_ids, performer_ids):
+def sendImageBatch(image_ids, tag_ids, performer_ids, studio_id=None):
 
     update_data = {
         "ids": image_ids
@@ -129,6 +135,9 @@ def sendImageBatch(image_ids, tag_ids, performer_ids):
             "mode": "ADD",
             "ids": list(performer_ids)
         }
+
+    if studio_id:
+        update_data["studio_id"] = studio_id
 
     log.info(f"Updating {len(image_ids)} images")
 
