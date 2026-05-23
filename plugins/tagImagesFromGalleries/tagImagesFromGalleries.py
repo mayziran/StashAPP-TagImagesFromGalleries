@@ -118,7 +118,31 @@ def processGallery(gallery: dict):
         sendImageBatch(batch_ids, batch_tags, batch_performers, batch_studio_id)
 
 
-def sendImageBatch(image_ids, tag_ids, performer_ids, studio_id=None):
+def processGalleryOrganized(gallery: dict):
+
+    images = stash.find_gallery_images(
+        gallery["id"],
+        fragment="id"
+    )
+
+    if not images:
+        return
+
+    batch_ids = []
+
+    for image in images:
+
+        batch_ids.append(image["id"])
+
+        if len(batch_ids) >= IMAGE_UPDATE_BATCH:
+            sendImageBatch(batch_ids, set(), set(), organized=gallery["organized"])
+            batch_ids = []
+
+    if batch_ids:
+        sendImageBatch(batch_ids, set(), set(), organized=gallery["organized"])
+
+
+def sendImageBatch(image_ids, tag_ids, performer_ids, studio_id=None, organized=None):
 
     update_data = {
         "ids": image_ids
@@ -138,6 +162,9 @@ def sendImageBatch(image_ids, tag_ids, performer_ids, studio_id=None):
 
     if studio_id:
         update_data["studio_id"] = studio_id
+
+    if organized is not None:
+        update_data["organized"] = organized
 
     log.info(f"Updating {len(image_ids)} images")
 
@@ -173,7 +200,15 @@ elif "hookContext" in json_input["args"]:
     if (
         hook["type"] in ["Gallery.Update.Post", "Gallery.Create.Post"]
         and "inputFields" in hook
-        and len(hook["inputFields"]) > 2
+        and (
+            len(hook["inputFields"]) > 2
+            or (hook["type"] == "Gallery.Update.Post" and "organized" in hook["inputFields"])
+        )
     ):
         gallery = stash.find_gallery(gallery_id)
-        processGallery(gallery)
+
+        if len(hook["inputFields"]) > 2:
+            processGallery(gallery)
+
+        if hook["type"] == "Gallery.Update.Post" and "organized" in hook["inputFields"]:
+            processGalleryOrganized(gallery)
